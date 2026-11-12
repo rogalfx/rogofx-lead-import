@@ -27,7 +27,8 @@ const MASTER_FIELDS = {
   'title (original)': ({ place }) => asText(place.title),
   street: ({ place }) => asText(place.street),
   city: ({ place }) => asText(place.city),
-  state: ({ place }) => asText(place.state),
+  // The Coverage Log row's state ("Florida"), which its "Leads in Master" formula matches on.
+  state: ({ place, loc }) => asText(loc.state || place.state),
   phone: ({ place }) => asText(place.phone || place.phoneUnformatted),
   website: ({ place }) => asText(place.website),
   categoryname: ({ place }) => asText(place.categoryName),
