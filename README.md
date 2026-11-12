@@ -99,7 +99,7 @@ Make's old scrapes (October to 12 November) are saved in Apify as the dataset `r
 |---|---|---|
 | `dailyLimit` | 1000 | The most new contacts per day |
 | `apify.parallelRuns` | 3 | How many counties are scraped at once |
-| `backlog` | Make's paid scrapes | The Apify dataset worked through before any new scraping (see \"Leads already paid for come first\") |
+| `backlog` | Make's paid scrapes | The Apify dataset worked through before any new scraping (see "Leads already paid for come first") |
 | `apify.stopBelowUsd` | 3 | Don't start another scrape when less than this many dollars of the Apify monthly limit is left, so a county isn't cut off halfway and still billed |
 | `masterLeads.status` | Texted | The Status written on new Master Leads rows. The Dashboard counts these under "Texted". |
 | `skipClosedPlaces` | true | Skips businesses Google lists as closed. This is checked here, after the scrape: Apify's own "skip closed places" filter is billed on every place, so it isn't used |
