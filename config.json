@@ -32,7 +32,8 @@
     "actor": "compass/crawler-google-places",
     "language": "en",
     "maxWaitMinutes": 120,
-    "parallelRuns": 3
+    "parallelRuns": 3,
+    "stopBelowUsd": 3
   },
   "ghl": {
     "tags": [],

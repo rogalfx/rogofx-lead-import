@@ -2,9 +2,10 @@ name: Nightly lead import
 
 on:
   schedule:
-    # 08:00 UTC Monday to Saturday = 2am Chicago in winter (CST), 3am in summer (CDT).
-    # No run on Sunday. GitHub can start scheduled runs a few minutes late.
-    - cron: "0 8 * * 1-6"
+    # 07:37 UTC Monday to Saturday = 1:37am Chicago in winter (CST), 2:37am in summer (CDT).
+    # No run on Sunday. Not on the hour: GitHub's queue is busiest at :00, and the
+    # 08:00 slot started 8.5 hours late on 2026-11-12.
+    - cron: "37 7 * * 1-6"
   workflow_dispatch:
     inputs:
       dry_run:

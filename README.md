@@ -1,6 +1,6 @@
 # Nightly lead import for RogoFX_Lead_Tracker (replaces the Make scenario)
 
-Monday to Saturday at 2am Chicago time (3am in summer), GitHub Actions runs this job. It doesn't run on Sunday. It doesn't need Make or a server, and your computer can be off.
+Monday to Saturday at about 1:40am Chicago time (2:40am in summer), GitHub Actions runs this job. It doesn't run on Sunday. It doesn't need Make or a server, and your computer can be off.
 
 ## What it does each night
 
@@ -78,7 +78,8 @@ The **Dashboard** tab updates by itself. "Counties run" counts the Coverage Log 
 
 - **What happened last night:** look at the Dashboard, the Coverage Log Notes, or the run on the **Actions** page.
 - **Problems:** if a run fails, GitHub emails you. That includes running out of `Not run` rows before reaching 1,000.
-- **Change the time:** edit the `cron` line in `.github/workflows/nightly.yml`. It's in UTC, so `0 8 * * 1-6` is 2am CST, Monday (1) to Saturday (6). Use `0 8 * * *` to run every day.
+- **Change the time:** edit the `cron` line in `.github/workflows/nightly.yml`. It's in UTC, so `37 7 * * 1-6` is 1:37am CST, Monday (1) to Saturday (6). Use `37 7 * * *` to run every day. Keep the minute off `:00`: GitHub's queue is busiest on the hour, and the 08:00 slot started 8½ hours late on 12 November.
+- **Apify spending limit:** each run prints this month's Apify spend. If the limit is used up (or less than `apify.stopBelowUsd` is left), the run stops before scraping, says how much is used and when it resets, and GitHub emails you. Nothing in the sheet or GHL changes. Raise the limit at <https://console.apify.com/billing/limits> or wait for the reset.
 - **Pause it:** change the `NIGHTLY_ENABLED` variable to `false`. Manual runs from the Actions page still work while it's paused.
 
 ## Settings (`config.json`)
@@ -87,8 +88,9 @@ The **Dashboard** tab updates by itself. "Counties run" counts the Coverage Log 
 |---|---|---|
 | `dailyLimit` | 1000 | The most new contacts per day |
 | `apify.parallelRuns` | 3 | How many counties are scraped at once |
+| `apify.stopBelowUsd` | 3 | Don't start another scrape when less than this many dollars of the Apify monthly limit is left, so a county isn't cut off halfway and still billed |
 | `masterLeads.status` | Texted | The Status written on new Master Leads rows. The Dashboard counts these under "Texted". |
-| `skipClosedPlaces` | true | Skips businesses Google lists as closed |
+| `skipClosedPlaces` | true | Skips businesses Google lists as closed. This is checked here, after the scrape: Apify's own "skip closed places" filter is billed on every place, so it isn't used |
 
 ## Running it on your own computer (optional)
 
@@ -105,5 +107,5 @@ npm test
 ## Costs
 
 - **GitHub Actions:** free for a public repository. A private repository may run a few dollars over its free minutes (see the GitHub step above).
-- **Apify:** billed per place scraped. With no limit, big counties return more places and cost more, but every place is used: whatever isn't processed tonight is saved for tomorrow.
+- **Apify:** billed per place scraped, about $3–4 per 1,000 places depending on your Apify plan, plus a few cents a run. Many places are skipped (no phone, already contacted), so 1,000 new contacts can take 2,000–3,000 places: roughly $6–12 a night, or $150–300 over a month of Monday-to-Saturday runs. An $80 monthly limit covers about a week to ten days. With no place limit, big counties return more places and cost more, but every place is used: whatever isn't processed tonight is saved for tomorrow.
 - **GHL:** no extra cost.
