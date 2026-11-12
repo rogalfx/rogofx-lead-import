@@ -4,7 +4,7 @@
 // The Dashboard tab updates by itself from Coverage Log (Run) and Master Leads.
 import { ApifyLimitError } from './apify.js';
 import { HttpError } from './http.js';
-import { asText, cleanName, dateSerial, phoneKey, placeToContact } from './mapping.js';
+import { asText, cleanName, dateSerial, fillTemplate, phoneKey, placeToContact } from './mapping.js';
 
 const FATAL_STATUSES = new Set([401, 402, 403]);
 const DATASET_NOTE = /Apify dataset ([A-Za-z0-9]+)/;
@@ -69,6 +69,7 @@ export async function runPipeline({ config: cfg, sheets, apify, ghl, options = {
     partialRows: [],
     apifyFailures: [],
     enrollFailed: [],
+    pipelineFailed: [],
     newCategories: [],
     notes: [],
   };
@@ -291,6 +292,21 @@ export async function runPipeline({ config: cfg, sheets, apify, ghl, options = {
     remaining--;
     summary.newContacts++;
 
+    // The "Initial SMS Sequence" workflow starts when a contact lands in the SMS pipeline.
+    const opp = cfg.ghl.opportunity;
+    if (opp?.pipelineId) {
+      try {
+        await ghl.createOpportunity({
+          pipelineId: opp.pipelineId,
+          stageId: opp.stageId,
+          contactId: created.id,
+          name: fillTemplate(opp.name ?? '{{cleanName}}', { ...place, cleanName: name }) || name,
+        });
+      } catch (err) {
+        summary.pipelineFailed.push(`${name} (${created.id})`);
+        if (isFatal(err) || summary.pipelineFailed.length >= 5) throw err;
+      }
+    }
     if (ghl.workflowId) {
       try {
         await ghl.addToWorkflow(created.id);

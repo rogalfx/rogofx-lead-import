@@ -259,3 +259,15 @@ test('Apify: if the usage check fails, the scrape still runs', async () => {
   const apify = createApifyClient({ token: 'tok', actor: 'compass/crawler-google-places', minUsdLeft: 3 });
   assert.equal((await apify.run({})).status, 'SUCCEEDED');
 });
+
+test('GHL: putting a contact in a pipeline stage creates an open opportunity', async () => {
+  const calls = stubFetch([{ status: 201, body: { opportunity: { id: 'opp1' } } }]);
+  const ghl = createGhlClient({ token: 'tok', locationId: 'loc1' });
+
+  assert.equal(await ghl.createOpportunity({ pipelineId: 'p1', stageId: 's1', contactId: 'c1', name: 'Acme' }), 'opp1');
+  assert.equal(calls[0].url, 'https://services.leadconnectorhq.com/opportunities/');
+  assert.equal(calls[0].method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0].body), {
+    locationId: 'loc1', pipelineId: 'p1', pipelineStageId: 's1', contactId: 'c1', name: 'Acme', status: 'open',
+  });
+});
