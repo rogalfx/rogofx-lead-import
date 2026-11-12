@@ -35,6 +35,11 @@
     "parallelRuns": 3,
     "stopBelowUsd": 3
   },
+  "backlog": {
+    "datasetId": "difWiVRJlB6dVImL5",
+    "stateStoreId": "ce9xgr6dAEAwRvSiz",
+    "note": "Auto import (paid backlog)"
+  },
   "ghl": {
     "tags": [],
     "fields": {

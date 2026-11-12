@@ -10,6 +10,8 @@ const FATAL_STATUSES = new Set([401, 402, 403]);
 const DATASET_NOTE = /Apify dataset ([A-Za-z0-9]+)/;
 const AUTO_NOTE = /(?:\s*\|\s*)?Auto \d{4}-\d{2}-\d{2}:.*$/s;
 const MASTER_FLUSH_EVERY = 25;
+const BACKLOG_PAGE = 500;
+const PROGRESS_KEY = 'progress';
 
 const isFatal = (err) => !(err instanceof HttpError) || FATAL_STATUSES.has(err.status);
 
@@ -38,7 +40,7 @@ const MASTER_FIELDS = {
   'phone key': ({ key }) => asText(key),
   'date added': ({ today }) => today,
   status: ({ cfg }) => cfg.masterLeads.status,
-  notes: ({ cfg }) => asText(cfg.masterLeads.note),
+  notes: ({ cfg, loc }) => asText(loc.note ?? cfg.masterLeads.note),
 };
 
 function findColumns(header, wanted, tab, required) {
@@ -159,23 +161,31 @@ export async function runPipeline({ config: cfg, sheets, apify, ghl, options = {
   });
 
   // Apify's monthly spending limit: say so plainly up front instead of failing on the first scrape.
+  // It only blocks new scrapes; leads already paid for (the backlog) are still worked through.
   const usage = apify.usage ? await apify.usage() : null;
+  let apifyLow = false;
   if (usage) {
     summary.apifyUsage = usage;
     log(`Apify this month: $${usage.usedUsd.toFixed(2)} of $${usage.limitUsd.toFixed(2)} used, resets ${String(usage.resetsAt ?? '?').slice(0, 10)}`);
-    if (usage.leftUsd < (cfg.apify.stopBelowUsd ?? 0)) {
-      const err = new ApifyLimitError(usage);
-      if (!dryRun) {
-        summary.status = 'stopped: Apify monthly limit reached';
-        err.summary = summary;
-        throw err;
-      }
-      summary.notes.push(err.message);
-    }
+    apifyLow = usage.leftUsd < (cfg.apify.stopBelowUsd ?? 0);
   }
+
+  // Leads already paid for in earlier scrapes: worked through first, 1 lead per new contact,
+  // before any new county is scraped. Progress is kept in an Apify key-value store.
+  const bl = cfg.backlog?.datasetId ? cfg.backlog : null;
+  let backlog = null;
+  if (bl) {
+    const progress = (await apify.getRecord(bl.stateStoreId, PROGRESS_KEY)) ?? {};
+    backlog = { total: await apify.datasetSize(bl.datasetId), offset: Number(progress.offset) || 0 };
+    summary.backlog = backlog;
+    log(`Paid backlog: ${backlog.offset} of ${backlog.total} checked, ${Math.max(0, backlog.total - backlog.offset)} left`);
+  }
+  const backlogLeft = () => (backlog ? Math.max(0, backlog.total - backlog.offset) : 0);
 
   if (dryRun) {
     summary.status = 'dry run';
+    if (backlogLeft() > 0) summary.notes.push(`${backlogLeft()} paid backlog leads are worked through before any new scraping`);
+    if (apifyLow) summary.notes.push(new ApifyLimitError(usage).message);
     summary.preview = queue.slice(0, 5).map((loc) => ({
       row: loc.rowNumber,
       what: `${loc.keyword} – ${loc.location || loc.county}`,
@@ -243,8 +253,91 @@ export async function runPipeline({ config: cfg, sheets, apify, ghl, options = {
   let reachedEnd = false;
   let fatal = null;
 
+  const skip = (reason) => {
+    summary.skipped[reason] = (summary.skipped[reason] ?? 0) + 1;
+  };
+
+  /** One place -> GHL contact + Master Leads row, unless it should be skipped. Returns true if added. */
+  const tryContact = async (place, loc) => {
+    const key = phoneKey(place.phoneUnformatted || place.phone);
+    if (!key) return skip('no phone'), false;
+    if (checked.has(key)) return false; // same business listed twice tonight: judge it once
+    checked.add(key);
+    if (cfg.skipClosedPlaces && (place.permanentlyClosed || place.temporarilyClosed)) return skip('closed'), false;
+    if (dnc.has(key)) return skip('on Do Not Contact'), false;
+    if (masterKeys.has(key)) return skip('already in Master Leads'), false;
+
+    const category = String(place.categoryName ?? '').trim();
+    const keep = categories.get(category.toLowerCase());
+    if (keep === 'no') return skip('category marked No'), false;
+    // Categories not on the tab are kept; they're listed in the run report so you can add them.
+    if (category && keep === undefined) newCategories.add(category);
+
+    const name = cleanName(place.title);
+    const contact = placeToContact({ ...place, cleanName: name }, cfg.ghl.fields, cfg.ghl.tags ?? []);
+    if (await ghl.findDuplicate({ phone: contact.phone })) return skip('already in GHL'), false;
+    let created;
+    try {
+      created = await ghl.createContact(contact);
+      createFailuresInARow = 0;
+    } catch (err) {
+      if (isFatal(err) || ++createFailuresInARow >= 5) throw err;
+      return skip('rejected by GHL'), false;
+    }
+    if (created.duplicate) return skip('already in GHL'), false;
+
+    masterKeys.add(key);
+    masterBuffer.push(masterHeader.map((h) => MASTER_FIELDS[h.toLowerCase()]?.({ place, loc, name, key, today, cfg }) ?? ''));
+    remaining--;
+    summary.newContacts++;
+
+    if (ghl.workflowId) {
+      try {
+        await ghl.addToWorkflow(created.id);
+      } catch (err) {
+        summary.enrollFailed.push(created.id);
+        throw err;
+      }
+    }
+    if (masterBuffer.length >= MASTER_FLUSH_EVERY) await flushMaster();
+    return true;
+  };
+
+  const saveBacklogProgress = () =>
+    apify.setRecord(bl.stateStoreId, PROGRESS_KEY, { offset: backlog.offset, total: backlog.total, updated: now().toISOString() });
+
   try {
-    startMore();
+    // 4a. The paid backlog first.
+    if (backlogLeft() > 0) {
+      const before = summary.newContacts;
+      try {
+        while (remaining > 0 && backlogLeft() > 0) {
+          const page = await apify.getItemsPage(bl.datasetId, backlog.offset, BACKLOG_PAGE);
+          if (!page.length) {
+            backlog.total = backlog.offset; // dataset is shorter than it said: treat it as finished
+            break;
+          }
+          for (const item of page) {
+            if (remaining <= 0) break;
+            const loc = { state: item.sourceState, county: item.sourceCounty, keyword: item.sourceKeyword, note: bl.note };
+            await tryContact(item, loc);
+            backlog.offset++;
+          }
+          await flushMaster();
+          await saveBacklogProgress();
+        }
+      } finally {
+        await flushMaster().catch(() => {});
+        await saveBacklogProgress().catch((err) => summary.notes.push(`could not save backlog progress (${err.message})`));
+      }
+      summary.backlogContacts = summary.newContacts - before;
+      log(`Paid backlog: ${summary.backlogContacts} new contacts, ${backlogLeft()} leads left`);
+      if (backlogLeft() === 0) summary.notes.push('Paid backlog finished: new counties are scraped from here on');
+    }
+
+    // 4b. Then new scrapes from the Coverage Log, with whatever is left of today's budget.
+    if (remaining > 0 && queue.length && apifyLow) throw new ApifyLimitError(usage);
+    if (remaining > 0) startMore();
     for (let i = 0; i < queue.length; i++) {
       if (remaining <= 0 || stop) break;
       const loc = queue[i];
@@ -267,83 +360,17 @@ export async function runPipeline({ config: cfg, sheets, apify, ghl, options = {
       startMore();
       log(`Row ${loc.rowNumber} (${loc.keyword}, ${loc.county || loc.location}): ${res.items.length} places`);
 
+      const skippedBefore = Object.values(summary.skipped).reduce((a, b) => a + b, 0);
       let added = 0;
-      let skipped = 0;
       let stoppedEarly = false;
       for (const place of res.items) {
         if (remaining <= 0) {
           stoppedEarly = true;
           break;
         }
-        const skip = (reason) => {
-          summary.skipped[reason] = (summary.skipped[reason] ?? 0) + 1;
-          skipped++;
-        };
-        const key = phoneKey(place.phoneUnformatted || place.phone);
-        if (!key) {
-          skip('no phone');
-          continue;
-        }
-        if (checked.has(key)) continue; // same business listed twice tonight: judge it once
-        checked.add(key);
-        if (cfg.skipClosedPlaces && (place.permanentlyClosed || place.temporarilyClosed)) {
-          skip('closed');
-          continue;
-        }
-        if (dnc.has(key)) {
-          skip('on Do Not Contact');
-          continue;
-        }
-        if (masterKeys.has(key)) {
-          skip('already in Master Leads');
-          continue;
-        }
-
-        const category = String(place.categoryName ?? '').trim();
-        const keep = categories.get(category.toLowerCase());
-        if (keep === 'no') {
-          skip('category marked No');
-          continue;
-        }
-        // Categories not on the tab are kept; they're listed in the run report so you can add them.
-        if (category && keep === undefined) newCategories.add(category);
-
-        const name = cleanName(place.title);
-        const contact = placeToContact({ ...place, cleanName: name }, cfg.ghl.fields, cfg.ghl.tags ?? []);
-        if (await ghl.findDuplicate({ phone: contact.phone })) {
-          skip('already in GHL');
-          continue;
-        }
-        let created;
-        try {
-          created = await ghl.createContact(contact);
-          createFailuresInARow = 0;
-        } catch (err) {
-          if (isFatal(err) || ++createFailuresInARow >= 5) throw err;
-          skip('rejected by GHL');
-          continue;
-        }
-        if (created.duplicate) {
-          skip('already in GHL');
-          continue;
-        }
-
-        masterKeys.add(key);
-        masterBuffer.push(masterHeader.map((h) => MASTER_FIELDS[h.toLowerCase()]?.({ place, loc, name, key, today, cfg }) ?? ''));
-        remaining--;
-        added++;
-        summary.newContacts++;
-
-        if (ghl.workflowId) {
-          try {
-            await ghl.addToWorkflow(created.id);
-          } catch (err) {
-            summary.enrollFailed.push(created.id);
-            throw err;
-          }
-        }
-        if (masterBuffer.length >= MASTER_FLUSH_EVERY) await flushMaster();
+        if (await tryContact(place, loc)) added++;
       }
+      const skipped = Object.values(summary.skipped).reduce((a, b) => a + b, 0) - skippedBefore;
 
       await flushMaster();
       if (stoppedEarly) {
