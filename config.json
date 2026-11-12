@@ -41,6 +41,13 @@
     "note": "Auto import (paid backlog)"
   },
   "ghl": {
+    "opportunity": {
+      "pipeline": "SMS Pipeline",
+      "stage": "New Prospect",
+      "pipelineId": "RQtxl63SbypkXrkpAeoN",
+      "stageId": "f84bd262-3073-4617-9038-6ba8e5ea7e34",
+      "name": "{{cleanName}}"
+    },
     "tags": [],
     "fields": {
       "firstName": "{{cleanName}}",

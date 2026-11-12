@@ -588,7 +588,19 @@ test('if adding to the pipeline keeps failing, the run stops and names the conta
 test('no pipeline set: contacts are only created, as before', async () => {
   const sheets = tracker({ coverage: [row('Alabama', 'Autauga', 'landscaping')] });
   const ghl = fakeGhl();
-  await run({ config: config(), sheets, apify: fakeApify({ 'Autauga County, Alabama, USA': places(334, 1) }), ghl });
+  const noPipeline = config();
+  delete noPipeline.ghl.opportunity;
+  await run({ config: noPipeline, sheets, apify: fakeApify({ 'Autauga County, Alabama, USA': places(334, 1) }), ghl });
   assert.equal(ghl.created.length, 1);
   assert.equal(ghl.opportunities.length, 0);
+});
+
+test('the real config puts new contacts in SMS Pipeline > New Prospect (starts the Initial SMS Sequence)', () => {
+  assert.deepEqual(realConfig.ghl.opportunity, {
+    pipeline: 'SMS Pipeline',
+    stage: 'New Prospect',
+    pipelineId: 'RQtxl63SbypkXrkpAeoN',
+    stageId: 'f84bd262-3073-4617-9038-6ba8e5ea7e34',
+    name: '{{cleanName}}',
+  });
 });
