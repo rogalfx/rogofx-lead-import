@@ -100,12 +100,14 @@ function fakeApify(results, { failing = [] } = {}) {
   };
 }
 
-function fakeGhl({ existingPhones = [], workflowId = null, failAfter = null } = {}) {
+function fakeGhl({ existingPhones = [], workflowId = null, failAfter = null, oppFails = false } = {}) {
   const existing = new Set(existingPhones);
+  const opportunities = [];
   const created = [];
   const enrolled = [];
   return {
     workflowId,
+    opportunities,
     created,
     enrolled,
     async findDuplicate({ phone }) {
@@ -119,6 +121,11 @@ function fakeGhl({ existingPhones = [], workflowId = null, failAfter = null } = 
     },
     async addToWorkflow(id) {
       enrolled.push(id);
+    },
+    async createOpportunity(opp) {
+      if (oppFails) throw new HttpError('GHL add to pipeline', 422, { message: 'Pipeline stage not found' });
+      opportunities.push(opp);
+      return `o${opportunities.length}`;
     },
   };
 }
@@ -531,4 +538,69 @@ test('a GHL error partway saves backlog progress so nothing is skipped or repeat
 
   assert.equal(apify.records.progress.offset, 1, 'lead 2 is tried again next run');
   assert.equal(sheets.tabs['Master Leads'].length, 2);
+});
+
+const SMS_PIPELINE = { pipelineId: 'pipe1', stageId: 'stage1', name: '{{cleanName}}' };
+const withPipeline = (overrides = {}) => {
+  const c = config(overrides);
+  c.ghl.opportunity = SMS_PIPELINE;
+  return c;
+};
+
+test('every new contact is put in the SMS pipeline (what starts the SMS workflow); duplicates are not', async () => {
+  const sheets = tracker({ coverage: [row('Alabama', 'Autauga', 'landscaping')] });
+  const apify = fakeApify({ 'Autauga County, Alabama, USA': places(334, 3) });
+  const ghl = fakeGhl({ existingPhones: ['+13340000001'] });
+
+  await run({ config: withPipeline(), sheets, apify, ghl });
+
+  assert.deepEqual(ghl.opportunities, [
+    { pipelineId: 'pipe1', stageId: 'stage1', contactId: 'c1', name: 'Green 334-0 Landscaping' },
+    { pipelineId: 'pipe1', stageId: 'stage1', contactId: 'c2', name: 'Green 334-2 Landscaping' },
+  ]);
+});
+
+test('backlog contacts go in the SMS pipeline too', async () => {
+  const sheets = tracker({ coverage: [] });
+  const apify = withBacklog(fakeApify({}), [backlogItem(239, 1)]);
+  const ghl = fakeGhl();
+
+  await run({ config: withPipeline({ backlog: BACKLOG }), sheets, apify, ghl });
+
+  assert.equal(ghl.opportunities.length, 1);
+  assert.equal(ghl.opportunities[0].contactId, 'c1');
+});
+
+test('if adding to the pipeline keeps failing, the run stops and names the contacts to add by hand', async () => {
+  const sheets = tracker({ coverage: [row('Alabama', 'Autauga', 'landscaping')] });
+  const apify = fakeApify({ 'Autauga County, Alabama, USA': places(334, 8) });
+  const ghl = fakeGhl({ oppFails: true });
+
+  await assert.rejects(run({ config: withPipeline(), sheets, apify, ghl }), (err) => {
+    assert.equal(err.summary.pipelineFailed.length, 5);
+    assert.match(err.summary.pipelineFailed[0], /Green 334-0 Landscaping \(c1\)/);
+    return true;
+  });
+  assert.equal(ghl.created.length, 5, 'stops after 5 failures instead of creating 1,000 contacts nobody texts');
+  assert.equal(sheets.tabs['Master Leads'].length, 6, 'the 5 created are still recorded');
+});
+
+test('no pipeline set: contacts are only created, as before', async () => {
+  const sheets = tracker({ coverage: [row('Alabama', 'Autauga', 'landscaping')] });
+  const ghl = fakeGhl();
+  const noPipeline = config();
+  delete noPipeline.ghl.opportunity;
+  await run({ config: noPipeline, sheets, apify: fakeApify({ 'Autauga County, Alabama, USA': places(334, 1) }), ghl });
+  assert.equal(ghl.created.length, 1);
+  assert.equal(ghl.opportunities.length, 0);
+});
+
+test('the real config puts new contacts in SMS Pipeline > New Prospect (starts the Initial SMS Sequence)', () => {
+  assert.deepEqual(realConfig.ghl.opportunity, {
+    pipeline: 'SMS Pipeline',
+    stage: 'New Prospect',
+    pipelineId: 'RQtxl63SbypkXrkpAeoN',
+    stageId: 'f84bd262-3073-4617-9038-6ba8e5ea7e34',
+    name: '{{cleanName}}',
+  });
 });

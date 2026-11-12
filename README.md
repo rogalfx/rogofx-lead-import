@@ -13,7 +13,7 @@ Monday to Saturday at about 1:40am Chicago time (2:40am in summer), GitHub Actio
    - anyone already in **Master Leads** (matched on phone number)
    - anyone already in GHL
    - categories you marked **No** on the **Categories** tab, such as parks and plant nurseries
-5. Creates everyone else in GHL with the same fields Make used: first name and company name (with LLC/Inc removed), phone, address, city, state and website. Your existing GHL trigger then puts them in the SMS workflow, the same way it does for Make's contacts.
+5. Creates everyone else in GHL with the same fields Make used: first name and company name (with LLC/Inc removed), phone, address, city, state and website. Then it puts each one in the **SMS Pipeline**, stage **New Prospect**, named after the business, as Make did. Landing in that stage is what starts the **Initial SMS Sequence (Add Leads Here)** workflow. The pipeline and stage are set in `config.json` under `ghl.opportunity`.
 6. Adds each new lead to **Master Leads**.
 7. Marks the Coverage Log row `Run`, with Date run, Results returned and a short note.
 8. Stops at **1,000 new contacts** for the day.
@@ -50,7 +50,7 @@ Make's old scrapes (October to 12 November) are saved in Apify as the dataset `r
 
 ### 2. GoHighLevel and Apify
 
-- **GHL token:** in the sub-account, go to **Settings → Private Integrations → Create new integration**. Give it the **View Contacts** and **Edit Contacts** scopes, then copy the token.
+- **GHL token:** in the sub-account, go to **Settings → Private Integrations → Create new integration**. Give it the **View Contacts**, **Edit Contacts**, **View Opportunities** and **Edit Opportunities** scopes, then copy the token.
 - **GHL location ID:** the part after `/location/` in your GHL web address.
 - **Apify token:** in the Apify Console, go to **Settings → API & Integrations** and copy the token.
 

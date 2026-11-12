@@ -49,6 +49,16 @@ export function createGhlClient({ token, locationId, workflowId }) {
       }
     },
 
+    /** Puts a contact in a pipeline stage (an open opportunity). GHL workflows can start on this. */
+    async createOpportunity({ pipelineId, stageId, contactId, name }) {
+      const data = await call('/opportunities/', {
+        method: 'POST',
+        body: { locationId, pipelineId, pipelineStageId: stageId, contactId, name, status: 'open' },
+        label: 'GHL add to pipeline',
+      });
+      return data?.opportunity?.id ?? null;
+    },
+
     async addToWorkflow(contactId) {
       await call(`/contacts/${contactId}/workflow/${workflowId}`, {
         method: 'POST',

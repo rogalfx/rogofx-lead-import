@@ -58,6 +58,7 @@ function report(summary) {
   if (summary.partialRows?.length) lines.push(`Half done, finish next run: rows ${summary.partialRows.join(', ')}`);
   if (summary.apifyFailures?.length) lines.push(`Apify failures: ${summary.apifyFailures.join(', ')}`);
   if (summary.newCategories?.length) lines.push(`Categories not on your Categories tab (contacted anyway): ${summary.newCategories.join(', ')}`);
+  if (summary.pipelineFailed?.length) lines.push(`Created but NOT in the SMS pipeline, so not texted (add by hand): ${summary.pipelineFailed.join(', ')}`);
   if (summary.enrollFailed?.length) lines.push(`Created but NOT in the workflow (add by hand): ${summary.enrollFailed.join(', ')}`);
   for (const note of summary.notes ?? []) lines.push(`Note: ${note}`);
   if (summary.preview) lines.push(`Next rows and the Apify input they would use:\n${JSON.stringify(summary.preview, null, 2)}`);
@@ -69,6 +70,8 @@ async function main() {
   const unfilled = findPlaceholders(config);
   if (unfilled.length) throw new Error(`Fill in config.json first: ${unfilled.join(', ')}`);
 
+  const opp = config.ghl.opportunity;
+  if (opp && Boolean(opp.pipelineId) !== Boolean(opp.stageId)) throw new Error('config.json ghl.opportunity needs both pipelineId and stageId');
   need(['SHEET_ID', process.env.GOOGLE_SERVICE_ACCOUNT_FILE ? 'GOOGLE_SERVICE_ACCOUNT_FILE' : 'GOOGLE_SERVICE_ACCOUNT_JSON']);
   if (!dryRun) need(['APIFY_TOKEN', 'GHL_TOKEN', 'GHL_LOCATION_ID']);
 
