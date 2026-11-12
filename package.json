@@ -1,0 +1,14 @@
+{
+  "name": "maps-to-ghl-nightly",
+  "private": true,
+  "type": "module",
+  "description": "Nightly: Google Sheet locations -> Apify Google Maps scraper -> GoHighLevel workflow, capped per day.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dry-run": "node src/index.js --dry-run",
+    "test": "node --test"
+  }
+}

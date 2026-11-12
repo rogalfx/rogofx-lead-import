@@ -1,0 +1,56 @@
+name: Nightly lead import
+
+on:
+  schedule:
+    # 08:00 UTC = 2am Chicago in winter (CST), 3am in summer (CDT).
+    # GitHub can start scheduled runs a few minutes late.
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: only read the sheet and show what would happen"
+        type: boolean
+        default: true
+      limit:
+        description: "Max new contacts this run (blank = daily limit from config.json)"
+        type: string
+        default: ""
+      max_locations:
+        description: "Max locations this run (blank = no limit)"
+        type: string
+        default: ""
+
+# Never run two imports at the same time.
+concurrency:
+  group: nightly-lead-import
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  import:
+    # Nightly runs stay off until the repository variable NIGHTLY_ENABLED is "true",
+    # so the schedule can't start while Make is still running. Manual runs always work.
+    if: github.event_name == 'workflow_dispatch' || vars.NIGHTLY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    # GitHub's maximum is 360. Apify scrapes are the slow part.
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Run import
+        run: node src/index.js
+        env:
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          LIMIT: ${{ inputs.limit }}
+          MAX_LOCATIONS: ${{ inputs.max_locations }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          GHL_TOKEN: ${{ secrets.GHL_TOKEN }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+          # Optional: leave unset if a GHL trigger already starts the SMS workflow (as with Make).
+          GHL_WORKFLOW_ID: ${{ secrets.GHL_WORKFLOW_ID }}

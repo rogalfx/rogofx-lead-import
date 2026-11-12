@@ -1,0 +1,50 @@
+{
+  "dailyLimit": 1000,
+  "timezone": "America/Chicago",
+  "alertWhenOutOfLocations": true,
+  "coverageLog": {
+    "tab": "Coverage Log",
+    "columns": {
+      "state": "State",
+      "county": "County",
+      "keyword": "Keyword",
+      "location": "Location (paste into Apify)",
+      "status": "Status",
+      "dateRun": "Date run",
+      "results": "Results returned",
+      "notes": "Notes"
+    },
+    "todoStatuses": ["Not run", "Processing"],
+    "doneStatus": "Run",
+    "partialStatus": "Partial"
+  },
+  "masterLeads": {
+    "tab": "Master Leads",
+    "status": "Texted",
+    "note": "Auto import"
+  },
+  "doNotContactTab": "Do Not Contact",
+  "categories": {
+    "tab": "Categories"
+  },
+  "skipClosedPlaces": true,
+  "apify": {
+    "actor": "compass/crawler-google-places",
+    "language": "en",
+    "maxWaitMinutes": 120,
+    "parallelRuns": 3
+  },
+  "ghl": {
+    "tags": [],
+    "fields": {
+      "firstName": "{{cleanName}}",
+      "companyName": "{{cleanName}}",
+      "phone": "{{phoneUnformatted|phone}}",
+      "address1": "{{street}}",
+      "city": "{{city}}",
+      "state": "{{state}}",
+      "website": "{{website}}",
+      "dnd": false
+    }
+  }
+}
