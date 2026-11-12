@@ -1,6 +1,6 @@
 # Nightly lead import for RogoFX_Lead_Tracker (replaces the Make scenario)
 
-Every night at 2am Chicago time (3am in summer), GitHub Actions runs this job. It doesn't need Make or a server, and your computer can be off.
+Monday to Saturday at 2am Chicago time (3am in summer), GitHub Actions runs this job. It doesn't run on Sunday. It doesn't need Make or a server, and your computer can be off.
 
 ## What it does each night
 
@@ -72,13 +72,13 @@ The **Dashboard** tab updates by itself. "Counties run" counts the Coverage Log 
    1. Turn off the Make scenario. Don't run both, or they'll scrape and create contacts twice.
    2. In the repository, go to **Settings → Secrets and variables → Actions → Variables → New repository variable**. Name it `NIGHTLY_ENABLED` and set it to `true`.
 
-   From then on, the job runs every night by itself.
+   From then on, the job runs Monday to Saturday by itself.
 
 ## Day to day
 
 - **What happened last night:** look at the Dashboard, the Coverage Log Notes, or the run on the **Actions** page.
 - **Problems:** if a run fails, GitHub emails you. That includes running out of `Not run` rows before reaching 1,000.
-- **Change the time:** edit the `cron` line in `.github/workflows/nightly.yml`. It's in UTC, so `0 8 * * *` is 2am CST.
+- **Change the time:** edit the `cron` line in `.github/workflows/nightly.yml`. It's in UTC, so `0 8 * * 1-6` is 2am CST, Monday (1) to Saturday (6). Use `0 8 * * *` to run every day.
 - **Pause it:** change the `NIGHTLY_ENABLED` variable to `false`. Manual runs from the Actions page still work while it's paused.
 
 ## Settings (`config.json`)
