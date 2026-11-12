@@ -413,3 +413,16 @@ test('Apify limit hit partway: finished counties are kept, the rest stay Not run
   assert.equal(cov[1][6], 'Run');
   assert.equal(cov[2][6], 'Not run');
 });
+
+test('Master Leads gets the Coverage Log state, so its "Leads in Master" count works when Google gives no state', async () => {
+  const sheets = tracker({ coverage: [row('Florida', 'Miami-Dade', 'hardscaping')] });
+  const apify = fakeApify({ 'Miami-Dade County, Florida, USA': [place(305, 1, { state: null }), place(305, 2, { state: 'FL' })] });
+
+  await run({ config: config(), sheets, apify, ghl: fakeGhl() });
+
+  const master = sheets.tabs['Master Leads'];
+  assert.deepEqual(master.slice(1).map((r) => [r[3], r[7], r[8]]), [
+    ['Florida', 'Miami-Dade', 'hardscaping'],
+    ['Florida', 'Miami-Dade', 'hardscaping'],
+  ]);
+});
