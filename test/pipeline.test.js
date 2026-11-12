@@ -8,7 +8,42 @@ import { mergeNotes, runPipeline } from '../src/pipeline.js';
 
 // The real config.json, so the tests check the settings that will actually run.
 const realConfig = JSON.parse(readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
-const config = (overrides = {}) => ({ ...structuredClone(realConfig), dailyLimit: 1000, ...overrides });
+// The backlog is off unless a test turns it on (the real one points at Mark's Apify dataset).
+const config = (overrides = {}) => ({ ...structuredClone(realConfig), dailyLimit: 1000, backlog: null, ...overrides });
+const BACKLOG = { datasetId: 'backlog1', stateStoreId: 'state1', note: 'Auto import (paid backlog)' };
+
+/** Adds a paid backlog (a saved dataset plus a progress record) to a fake Apify. */
+function withBacklog(apify, items, progress = null) {
+  const records = progress ? { progress } : {};
+  return {
+    ...apify,
+    records,
+    pagesRead: 0,
+    async datasetSize(id) {
+      assert.equal(id, 'backlog1');
+      return items.length;
+    },
+    async getItemsPage(id, offset, limit) {
+      this.pagesRead++;
+      return items.slice(offset, offset + limit);
+    },
+    async getRecord(store, key) {
+      assert.equal(store, 'state1');
+      return records[key] ?? null;
+    },
+    async setRecord(store, key, value) {
+      records[key] = value;
+    },
+  };
+}
+const backlogItem = (area, i, extra = {}) => ({
+  ...place(area, i),
+  state: null,
+  sourceState: 'Florida',
+  sourceCounty: 'Collier',
+  sourceKeyword: 'landscaping',
+  ...extra,
+});
 
 // ---------- fakes that behave like the RogoFX_Lead_Tracker sheet, Apify and GHL ----------
 
@@ -425,4 +460,75 @@ test('Master Leads gets the Coverage Log state, so its "Leads in Master" count w
     ['Florida', 'Miami-Dade', 'hardscaping'],
     ['Florida', 'Miami-Dade', 'hardscaping'],
   ]);
+});
+
+test('paid backlog first: new contacts from it, progress saved, no Apify scrape while it lasts', async () => {
+  const sheets = tracker({ coverage: [row('Alabama', 'Autauga', 'landscaping')] });
+  const items = [backlogItem(239, 1), backlogItem(239, 2), backlogItem(239, 3), backlogItem(239, 4)];
+  const apify = withBacklog(fakeApify({ 'Autauga County, Alabama, USA': places(334, 5) }), items);
+  const ghl = fakeGhl({ existingPhones: ['+12390000002'] });
+
+  const s = await run({ config: config({ dailyLimit: 2, backlog: BACKLOG }), sheets, apify, ghl });
+
+  assert.equal(s.status, 'daily limit reached');
+  assert.equal(s.backlogContacts, 2);
+  assert.deepEqual(ghl.created.map((c) => c.phone), ['+12390000001', '+12390000003']);
+  assert.equal(apify.runs.length, 0, 'nothing scraped while paid leads are left');
+  assert.equal(apify.records.progress.offset, 3, 'lead 4 is next');
+  const master = sheets.tabs['Master Leads'].slice(1);
+  assert.deepEqual(master.map((r) => [r[3], r[7], r[8], r[16]]), [
+    ['Florida', 'Collier', 'landscaping', 'Auto import (paid backlog)'],
+    ['Florida', 'Collier', 'landscaping', 'Auto import (paid backlog)'],
+  ]);
+  assert.equal(sheets.tabs['Coverage Log'][1][6], 'Not run', 'Coverage Log untouched');
+});
+
+test('paid backlog runs out: the rest of the night scrapes new counties and marks them Run', async () => {
+  const sheets = tracker({ coverage: [row('Alabama', 'Autauga', 'landscaping')] });
+  const apify = withBacklog(fakeApify({ 'Autauga County, Alabama, USA': places(334, 3) }), [backlogItem(239, 1), backlogItem(239, 2)], { offset: 1 });
+  const ghl = fakeGhl();
+
+  const s = await run({ config: config({ backlog: BACKLOG }), sheets, apify, ghl });
+
+  assert.equal(s.backlogContacts, 1, 'only the lead after the saved offset');
+  assert.equal(s.newContacts, 4);
+  assert.equal(apify.runs.length, 1);
+  assert.equal(apify.records.progress.offset, 2);
+  assert.match(s.notes.join(' '), /Paid backlog finished/);
+  const cov = sheets.tabs['Coverage Log'][1];
+  assert.equal(cov[6], 'Run');
+  assert.equal(cov[7], dateSerial('2026-11-11'));
+});
+
+test('a finished backlog is not read again', async () => {
+  const sheets = tracker({ coverage: [row('Alabama', 'Autauga', 'landscaping')] });
+  const apify = withBacklog(fakeApify({ 'Autauga County, Alabama, USA': places(334, 1) }), [backlogItem(239, 1)], { offset: 1 });
+
+  const s = await run({ config: config({ backlog: BACKLOG }), sheets, apify, ghl: fakeGhl() });
+
+  assert.equal(apify.pagesRead, 0);
+  assert.equal(s.newContacts, 1);
+});
+
+test('Apify limit used up: the paid backlog still runs, only scraping stops', async () => {
+  const sheets = tracker({ coverage: [row('Alabama', 'Autauga', 'landscaping')] });
+  const apify = { ...withBacklog(fakeApify({}), [backlogItem(239, 1)]), usage: async () => overLimit };
+  const ghl = fakeGhl();
+
+  await assert.rejects(run({ config: config({ backlog: BACKLOG }), sheets, apify, ghl }), ApifyLimitError);
+
+  assert.equal(ghl.created.length, 1, 'the paid lead still went to GHL');
+  assert.equal(apify.runs.length, 0);
+  assert.equal(apify.records.progress.offset, 1);
+});
+
+test('a GHL error partway saves backlog progress so nothing is skipped or repeated', async () => {
+  const sheets = tracker({ coverage: [] });
+  const apify = withBacklog(fakeApify({}), [backlogItem(239, 1), backlogItem(239, 2), backlogItem(239, 3)]);
+  const ghl = fakeGhl({ failAfter: 1 });
+
+  await assert.rejects(run({ config: config({ backlog: BACKLOG }), sheets, apify, ghl }), /HTTP 401/);
+
+  assert.equal(apify.records.progress.offset, 1, 'lead 2 is tried again next run');
+  assert.equal(sheets.tabs['Master Leads'].length, 2);
 });

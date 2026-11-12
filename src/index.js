@@ -47,6 +47,11 @@ function report(summary) {
     `Coverage Log rows finished: ${summary.locationsFinished?.length ?? 0}`,
     `Coverage Log rows still waiting: ${summary.pendingLocations ?? '?'}`,
   ];
+  const b = summary.backlog;
+  if (b) {
+    const left = Math.max(0, b.total - b.offset);
+    lines.push(`Paid backlog: ${summary.backlogContacts ?? 0} new contacts tonight, ${left} of ${b.total} leads left${left ? '' : ' (finished: scraping new counties)'}`);
+  }
   const u = summary.apifyUsage;
   if (u) lines.push(`Apify this month: $${u.usedUsd.toFixed(2)} of $${u.limitUsd.toFixed(2)} limit used, resets ${String(u.resetsAt ?? '?').slice(0, 10)}`);
   for (const [reason, n] of Object.entries(summary.skipped ?? {})) lines.push(`Skipped (${reason}): ${n}`);

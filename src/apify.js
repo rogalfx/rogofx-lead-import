@@ -105,6 +105,41 @@ export function createApifyClient({
       return { status: run.status, runId: run.id, datasetId: run.defaultDatasetId };
     },
 
+    /** Number of items in a dataset. */
+    async datasetSize(datasetId) {
+      const res = await limitAware(() => request(`${API}/datasets/${datasetId}`, { headers, label: 'Apify dataset info' }));
+      return Number(res?.data?.itemCount) || 0;
+    },
+
+    /** One page of a dataset, in order. */
+    async getItemsPage(datasetId, offset, limit) {
+      return limitAware(() =>
+        request(`${API}/datasets/${datasetId}/items?clean=true&format=json&limit=${limit}&offset=${offset}`, {
+          headers,
+          label: 'Apify read results',
+        }),
+      );
+    },
+
+    /** A JSON record from a key-value store, or null if it isn't there yet. */
+    async getRecord(storeId, key) {
+      try {
+        return await request(`${API}/key-value-stores/${storeId}/records/${encodeURIComponent(key)}`, { headers, label: 'Apify read record' });
+      } catch (err) {
+        if (err instanceof HttpError && err.status === 404) return null;
+        throw err;
+      }
+    },
+
+    async setRecord(storeId, key, value) {
+      await request(`${API}/key-value-stores/${storeId}/records/${encodeURIComponent(key)}`, {
+        method: 'PUT',
+        headers,
+        body: value,
+        label: 'Apify save record',
+      });
+    },
+
     /** All items in a dataset. Throws HttpError 404 if the dataset has expired. */
     async getItems(datasetId) {
       const items = [];

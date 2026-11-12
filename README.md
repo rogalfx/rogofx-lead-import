@@ -20,6 +20,17 @@ Monday to Saturday at about 1:40am Chicago time (2:40am in summer), GitHub Actio
 
 The **Dashboard** tab updates by itself. "Counties run" counts the Coverage Log rows marked Run, and the funnel counts the rows in Master Leads.
 
+### Leads already paid for come first (the paid backlog)
+
+Make's old scrapes (October to 12 November) are saved in Apify as the dataset `rogofx-paid-backlog`: 10,031 businesses with a phone, after removing duplicates, closed places and anyone already in Master Leads. Every night the job works through that list **before scraping anything new**:
+
+- Each lead gets the same checks as a new scrape: Do Not Contact, Master Leads, the Categories tab and a GHL duplicate check. Most of these businesses are probably in GHL already, so many are skipped.
+- New ones are created in GHL and added to Master Leads with the Coverage Log row's state, county and keyword, and the note `Auto import (paid backlog)`.
+- It stops at the daily limit and carries on from the same place the next night. Its place is saved in the Apify key-value store `rogofx-paid-backlog-state`.
+- Nights spent on the backlog cost nothing in Apify. When the list runs out, that same night carries on with Coverage Log scraping as described above. The run report says how many backlog leads are left.
+- The Coverage Log isn't changed for backlog leads, because their counties are already marked Run.
+- To skip the backlog, delete the `backlog` block from `config.json`.
+
 ### Never paying Apify twice for the same county
 
 - As soon as a scrape finishes, its row is marked `Partial` and the Apify dataset ID is saved in Notes.
@@ -88,6 +99,7 @@ The **Dashboard** tab updates by itself. "Counties run" counts the Coverage Log 
 |---|---|---|
 | `dailyLimit` | 1000 | The most new contacts per day |
 | `apify.parallelRuns` | 3 | How many counties are scraped at once |
+| `backlog` | Make's paid scrapes | The Apify dataset worked through before any new scraping (see "Leads already paid for come first") |
 | `apify.stopBelowUsd` | 3 | Don't start another scrape when less than this many dollars of the Apify monthly limit is left, so a county isn't cut off halfway and still billed |
 | `masterLeads.status` | Texted | The Status written on new Master Leads rows. The Dashboard counts these under "Texted". |
 | `skipClosedPlaces` | true | Skips businesses Google lists as closed. This is checked here, after the scrape: Apify's own "skip closed places" filter is billed on every place, so it isn't used |
