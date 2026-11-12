@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { ApifyLimitError } from '../src/apify.js';
 import { HttpError } from '../src/http.js';
 import { dateSerial } from '../src/mapping.js';
 import { mergeNotes, runPipeline } from '../src/pipeline.js';
@@ -135,8 +136,7 @@ test('creates the GHL contact like Make did, adds a Master Leads row, and marks 
     searchStringsArray: ['landscaping'],
     locationQuery: 'Autauga County, Alabama, USA',
     language: 'en',
-    skipClosedPlaces: true,
-  }, "the row's keyword and location, and no limit on places");
+  }, "the row's keyword and location, no limit on places, and no paid Apify filters");
   assert.deepEqual(ghl.created[0], {
     firstName: 'Green 334-1 Landscaping',
     companyName: 'Green 334-1 Landscaping',
@@ -359,4 +359,57 @@ test('keeps your own notes and only replaces what the job wrote last time', () =
   assert.equal(once, 'call county office first | Auto 2026-11-11: 3 new so far; Apify dataset a1');
   assert.equal(mergeNotes(once, 'Auto 2026-11-12: 9 found'), 'call county office first | Auto 2026-11-12: 9 found');
   assert.equal(mergeNotes('', 'Auto 2026-11-12: 9 found'), 'Auto 2026-11-12: 9 found');
+});
+
+const overLimit = { usedUsd: 80, limitUsd: 80, leftUsd: 0, resetsAt: '2026-12-11T00:00:00.000Z' };
+
+test('Apify monthly limit already spent: stops before scraping, says so plainly, sheet and GHL untouched', async () => {
+  const sheets = tracker({ coverage: [row('Alabama', 'Autauga', 'landscaping')] });
+  const apify = { ...fakeApify({ 'Autauga County, Alabama, USA': places(334, 3) }), usage: async () => overLimit };
+  const ghl = fakeGhl();
+  const before = JSON.stringify(sheets.tabs);
+
+  await assert.rejects(
+    run({ config: config(), sheets, apify, ghl }),
+    (err) =>
+      err instanceof ApifyLimitError &&
+      /\$80\.00 of \$80\.00/.test(err.message) &&
+      /2026-12-11/.test(err.message) &&
+      err.summary.status === 'stopped: Apify monthly limit reached',
+  );
+  assert.equal(JSON.stringify(sheets.tabs), before);
+  assert.equal(apify.runs.length, 0);
+  assert.equal(ghl.created.length, 0);
+});
+
+test('dry run shows the Apify spend and warns when the limit is reached', async () => {
+  const sheets = tracker({ coverage: [row('Alabama', 'Autauga', 'landscaping')] });
+  const apify = { ...fakeApify({}), usage: async () => overLimit };
+
+  const s = await run({ config: config(), sheets, apify, ghl: fakeGhl(), options: { dryRun: true } });
+
+  assert.equal(s.status, 'dry run');
+  assert.deepEqual(s.apifyUsage, overLimit);
+  assert.match(s.notes.join(' '), /Apify monthly spending limit reached/);
+});
+
+test('Apify limit hit partway: finished counties are kept, the rest stay Not run', async () => {
+  const sheets = tracker({ coverage: [row('Alabama', 'Autauga', 'landscaping'), row('Alabama', 'Baldwin', 'landscaping')] });
+  const base = fakeApify({ 'Autauga County, Alabama, USA': places(334, 2) });
+  const apify = {
+    ...base,
+    usage: async () => ({ usedUsd: 10, limitUsd: 80, leftUsd: 70, resetsAt: null }),
+    async run(input) {
+      if (input.locationQuery.startsWith('Baldwin')) throw new ApifyLimitError(overLimit);
+      return base.run(input);
+    },
+  };
+  const ghl = fakeGhl();
+
+  await assert.rejects(run({ config: config(), sheets, apify, ghl }), ApifyLimitError);
+
+  assert.equal(ghl.created.length, 2);
+  const cov = sheets.tabs['Coverage Log'];
+  assert.equal(cov[1][6], 'Run');
+  assert.equal(cov[2][6], 'Not run');
 });

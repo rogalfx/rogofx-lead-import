@@ -47,6 +47,8 @@ function report(summary) {
     `Coverage Log rows finished: ${summary.locationsFinished?.length ?? 0}`,
     `Coverage Log rows still waiting: ${summary.pendingLocations ?? '?'}`,
   ];
+  const u = summary.apifyUsage;
+  if (u) lines.push(`Apify this month: $${u.usedUsd.toFixed(2)} of $${u.limitUsd.toFixed(2)} limit used, resets ${String(u.resetsAt ?? '?').slice(0, 10)}`);
   for (const [reason, n] of Object.entries(summary.skipped ?? {})) lines.push(`Skipped (${reason}): ${n}`);
   if (summary.partialRows?.length) lines.push(`Half done, finish next run: rows ${summary.partialRows.join(', ')}`);
   if (summary.apifyFailures?.length) lines.push(`Apify failures: ${summary.apifyFailures.join(', ')}`);
@@ -71,6 +73,7 @@ async function main() {
     token: process.env.APIFY_TOKEN,
     actor: config.apify.actor,
     maxWaitMinutes: config.apify.maxWaitMinutes,
+    minUsdLeft: config.apify.stopBelowUsd ?? null,
   });
   const ghl = createGhlClient({
     token: process.env.GHL_TOKEN,

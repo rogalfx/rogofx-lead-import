@@ -2,6 +2,7 @@
 // Coverage Log row (top to bottom) -> Apify -> skip anyone already contacted -> GHL contact
 // -> Master Leads row -> Coverage Log row marked Run. Stops at the daily limit of new contacts.
 // The Dashboard tab updates by itself from Coverage Log (Run) and Master Leads.
+import { ApifyLimitError } from './apify.js';
 import { HttpError } from './http.js';
 import { asText, cleanName, dateSerial, phoneKey, placeToContact } from './mapping.js';
 
@@ -148,12 +149,29 @@ export async function runPipeline({ config: cfg, sheets, apify, ghl, options = {
 
   // Same search Make ran, but with the row's own keyword (each county has a landscaping row and a
   // hardscaping row, so searching both on every row paid for every county twice). No place limit.
+  // No Apify filters: each one (skipClosedPlaces included) is billed per place on top of the
+  // place price, and closed places are already skipped below from the place's own fields.
   const apifyInputFor = (loc) => ({
     searchStringsArray: [loc.keyword],
     locationQuery: loc.location,
     language: cfg.apify.language,
-    ...(cfg.skipClosedPlaces ? { skipClosedPlaces: true } : {}),
   });
+
+  // Apify's monthly spending limit: say so plainly up front instead of failing on the first scrape.
+  const usage = apify.usage ? await apify.usage() : null;
+  if (usage) {
+    summary.apifyUsage = usage;
+    log(`Apify this month: $${usage.usedUsd.toFixed(2)} of $${usage.limitUsd.toFixed(2)} used, resets ${String(usage.resetsAt ?? '?').slice(0, 10)}`);
+    if (usage.leftUsd < (cfg.apify.stopBelowUsd ?? 0)) {
+      const err = new ApifyLimitError(usage);
+      if (!dryRun) {
+        summary.status = 'stopped: Apify monthly limit reached';
+        err.summary = summary;
+        throw err;
+      }
+      summary.notes.push(err.message);
+    }
+  }
 
   if (dryRun) {
     summary.status = 'dry run';
@@ -339,7 +357,7 @@ export async function runPipeline({ config: cfg, sheets, apify, ghl, options = {
     if (remaining > 0 && !stop) reachedEnd = true;
   } catch (err) {
     fatal = err;
-    summary.status = `error: ${err.message}`.slice(0, 300);
+    summary.status = err instanceof ApifyLimitError ? 'stopped: Apify monthly limit reached' : `error: ${err.message}`.slice(0, 300);
   } finally {
     stop = true;
     await flushMaster().catch((err) => {

@@ -3,25 +3,86 @@ import { HttpError, request, sleep } from './http.js';
 
 const API = 'https://api.apify.com/v2';
 const DONE = new Set(['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']);
+const money = (n) => `$${Number(n).toFixed(2)}`;
 
-export function createApifyClient({ token, actor, maxWaitMinutes = 45, runTimeoutSecs = 0, pollPauseMs = 0, memoryRetryMs = 30_000 }) {
+/** Apify won't run anything until the monthly spending limit is raised or the cycle resets. */
+export class ApifyLimitError extends Error {
+  constructor(usage) {
+    const used = usage ? ` (${money(usage.usedUsd)} of ${money(usage.limitUsd)} used this month)` : '';
+    const reset = usage?.resetsAt ? ` until the cycle resets on ${String(usage.resetsAt).slice(0, 10)}` : ' until the monthly cycle resets';
+    super(
+      `Apify monthly spending limit reached${used}. Apify blocks every scrape${reset}. ` +
+        'Raise the limit at https://console.apify.com/billing/limits or wait for the reset. ' +
+        'Counties that were not scraped are left as they were in the Coverage Log.',
+    );
+    this.usage = usage;
+  }
+}
+
+const isLimitRefusal = (err) =>
+  err instanceof HttpError &&
+  (err.status === 402 || err.status === 403) &&
+  /platform-feature-disabled|monthly usage limit/i.test(JSON.stringify(err.data ?? ''));
+
+export function createApifyClient({
+  token,
+  actor,
+  maxWaitMinutes = 45,
+  runTimeoutSecs = 0,
+  pollPauseMs = 0,
+  memoryRetryMs = 30_000,
+  minUsdLeft = null,
+}) {
   const headers = { Authorization: `Bearer ${token}` };
   const actorPath = encodeURIComponent(actor.replace('/', '~'));
   const runQuery = runTimeoutSecs ? `?timeout=${runTimeoutSecs}` : '';
 
+  /** This month's spend against the limit, or null if Apify won't say. */
+  async function usage() {
+    try {
+      const res = await request(`${API}/users/me/limits`, { headers, retries: 2, label: 'Apify usage' });
+      const data = res?.data;
+      const limitUsd = Number(data?.limits?.maxMonthlyUsageUsd);
+      const usedUsd = Number(data?.current?.monthlyUsageUsd);
+      if (!Number.isFinite(limitUsd) || !Number.isFinite(usedUsd)) return null;
+      return { usedUsd, limitUsd, leftUsd: limitUsd - usedUsd, resetsAt: data?.monthlyUsageCycle?.endAt ?? null };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Turns Apify's "limit reached" refusal into a plain ApifyLimitError. */
+  async function limitAware(fn) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (isLimitRefusal(err)) throw new ApifyLimitError(await usage());
+      throw err;
+    }
+  }
+
   return {
+    usage,
+
     /** Runs the actor and waits. Returns { status, runId, datasetId }. */
     async run(input) {
+      // Don't start a scrape that the monthly limit would cut off halfway (and still bill).
+      if (minUsdLeft != null) {
+        const u = await usage();
+        if (u && u.leftUsd < minUsdLeft) throw new ApifyLimitError(u);
+      }
       const deadline = Date.now() + maxWaitMinutes * 60_000;
       let started;
       for (;;) {
         try {
-          started = await request(`${API}/acts/${actorPath}/runs${runQuery}`, {
-            method: 'POST',
-            headers,
-            body: input,
-            label: 'Apify start run',
-          });
+          started = await limitAware(() =>
+            request(`${API}/acts/${actorPath}/runs${runQuery}`, {
+              method: 'POST',
+              headers,
+              body: input,
+              label: 'Apify start run',
+            }),
+          );
           break;
         } catch (err) {
           // Plan's memory is full because other scrapes are running: wait for one to finish.
@@ -49,9 +110,11 @@ export function createApifyClient({ token, actor, maxWaitMinutes = 45, runTimeou
       const items = [];
       const pageSize = 1000;
       for (let offset = 0; ; offset += pageSize) {
-        const page = await request(
-          `${API}/datasets/${datasetId}/items?clean=true&format=json&limit=${pageSize}&offset=${offset}`,
-          { headers, label: 'Apify read results' },
+        const page = await limitAware(() =>
+          request(`${API}/datasets/${datasetId}/items?clean=true&format=json&limit=${pageSize}&offset=${offset}`, {
+            headers,
+            label: 'Apify read results',
+          }),
         );
         items.push(...page);
         if (page.length < pageSize) return items;

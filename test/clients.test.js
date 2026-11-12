@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { afterEach, test } from 'node:test';
-import { createApifyClient } from '../src/apify.js';
+import { ApifyLimitError, createApifyClient } from '../src/apify.js';
 import { createGhlClient } from '../src/ghl.js';
 import { cleanName, dateSerial, fillTemplate, phoneKey, placeToContact } from '../src/mapping.js';
 import { colLetter, createSheetsClient, quoteTab } from '../src/sheets.js';
@@ -222,4 +222,40 @@ test('Apify: passes the run timeout like Make did', async () => {
   await apify.run({});
 
   assert.equal(calls[0].url, 'https://api.apify.com/v2/acts/compass~crawler-google-places/runs?timeout=1800');
+});
+
+const limitsBody = (used, limit) => ({
+  data: { monthlyUsageCycle: { endAt: '2026-12-11T00:00:00.000Z' }, limits: { maxMonthlyUsageUsd: limit }, current: { monthlyUsageUsd: used } },
+});
+
+test('Apify: the monthly-limit refusal (what failed on 2026-11-12) becomes a plain message with the reset date', async () => {
+  const refusal = {
+    status: 403,
+    body: { error: { type: 'platform-feature-disabled', message: "You've reached your monthly usage limit of $80.00, so Actor runs are blocked" } },
+  };
+  const calls = stubFetch([refusal, { body: limitsBody(80, 80) }]);
+  const apify = createApifyClient({ token: 'tok', actor: 'compass/crawler-google-places' });
+
+  await assert.rejects(apify.run({}), (err) => err instanceof ApifyLimitError && /\$80\.00 of \$80\.00/.test(err.message) && /2026-12-11/.test(err.message));
+  assert.equal(calls.length, 2, 'not retried');
+  assert.equal(calls[1].url, 'https://api.apify.com/v2/users/me/limits');
+});
+
+test('Apify: usage reads the limit, and a scrape is not started when too little is left', async () => {
+  stubFetch([{ body: limitsBody(12.5, 80) }]);
+  const apify = createApifyClient({ token: 'tok', actor: 'compass/crawler-google-places', minUsdLeft: 3 });
+  assert.deepEqual(await apify.usage(), { usedUsd: 12.5, limitUsd: 80, leftUsd: 67.5, resetsAt: '2026-12-11T00:00:00.000Z' });
+
+  const calls = stubFetch([{ body: limitsBody(78, 80) }]);
+  await assert.rejects(apify.run({}), ApifyLimitError);
+  assert.equal(calls.length, 1, 'only the usage check, no run started');
+});
+
+test('Apify: if the usage check fails, the scrape still runs', async () => {
+  stubFetch([
+    { status: 404, body: {} },
+    { status: 201, body: { data: { id: 'run1', status: 'SUCCEEDED', defaultDatasetId: 'ds1' } } },
+  ]);
+  const apify = createApifyClient({ token: 'tok', actor: 'compass/crawler-google-places', minUsdLeft: 3 });
+  assert.equal((await apify.run({})).status, 'SUCCEEDED');
 });
