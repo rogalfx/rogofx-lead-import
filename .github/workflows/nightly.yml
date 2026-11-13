@@ -2,9 +2,10 @@ name: Nightly lead import
 
 on:
   schedule:
+    # Backup only. The morning run is started at 4:30am Chicago by cron-job.org (README,
+    # "Starting on time with cron-job.org"): GitHub started this schedule ~8 hours late on
+    # 12 and 13 November. A late backup sees the day's limit is reached and stops.
     # 07:37 UTC Monday to Saturday = 1:37am Chicago in winter (CST), 2:37am in summer (CDT).
-    # No run on Sunday. Not on the hour: GitHub's queue is busiest at :00, and the
-    # 08:00 slot started 8.5 hours late on 2026-11-12.
     - cron: "37 7 * * 1-6"
   workflow_dispatch:
     inputs:
