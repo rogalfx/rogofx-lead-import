@@ -55,3 +55,13 @@ jobs:
           GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
           # Optional: leave unset if a GHL trigger already starts the SMS workflow (as with Make).
           GHL_WORKFLOW_ID: ${{ secrets.GHL_WORKFLOW_ID }}
+      # Read-only on GHL. Rewrites the sheet's "Funnel" tab. Never fails the night's import.
+      - name: Funnel report
+        if: always()
+        continue-on-error: true
+        run: node src/funnel-run.js
+        env:
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GHL_TOKEN: ${{ secrets.GHL_TOKEN }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}

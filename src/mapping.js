@@ -64,3 +64,21 @@ export function dateSerial(isoDate) {
 
 /** Forces Sheets to store a value as plain text (no formulas, no number guessing). */
 export const asText = (v) => (isBlank(v) ? '' : `'${v}`);
+
+/**
+ * Builds the "installers only" check from config.installersOnly. Returns a function that gives
+ * the skip reason for a place (mowing and lawn-care crews), or null to keep it.
+ */
+export function installerFilter(cfg) {
+  if (!cfg) return () => null;
+  const keep = cfg.keepName ? new RegExp(cfg.keepName, 'i') : null;
+  const skipName = cfg.skipName ? new RegExp(cfg.skipName, 'i') : null;
+  const skipCats = new Set((cfg.skipCategories ?? []).map((c) => String(c).trim().toLowerCase()));
+  return (place) => {
+    const title = String(place.title ?? '');
+    if (keep?.test(title)) return null;
+    if (skipCats.has(String(place.categoryName ?? '').trim().toLowerCase())) return 'not an installer (category)';
+    if (skipName?.test(title)) return 'not an installer (name)';
+    return null;
+  };
+}

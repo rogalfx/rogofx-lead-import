@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dry-run": "node src/index.js --dry-run",
-    "test": "node --test"
+    "test": "node --test",
+    "funnel": "node src/funnel-run.js"
   }
 }

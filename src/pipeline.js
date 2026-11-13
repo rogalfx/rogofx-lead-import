@@ -4,7 +4,7 @@
 // The Dashboard tab updates by itself from Coverage Log (Run) and Master Leads.
 import { ApifyLimitError } from './apify.js';
 import { HttpError } from './http.js';
-import { asText, cleanName, dateSerial, fillTemplate, phoneKey, placeToContact } from './mapping.js';
+import { asText, cleanName, dateSerial, fillTemplate, installerFilter, phoneKey, placeToContact } from './mapping.js';
 
 const FATAL_STATUSES = new Set([401, 402, 403]);
 const DATASET_NOTE = /Apify dataset ([A-Za-z0-9]+)/;
@@ -248,6 +248,7 @@ export async function runPipeline({ config: cfg, sheets, apify, ghl, options = {
   };
 
   const checked = new Set();
+  const notInstaller = installerFilter(cfg.installersOnly);
   const newCategories = new Set();
   let apifyFailuresInARow = 0;
   let createFailuresInARow = 0;
@@ -273,6 +274,9 @@ export async function runPipeline({ config: cfg, sheets, apify, ghl, options = {
     if (keep === 'no') return skip('category marked No'), false;
     // Categories not on the tab are kept; they're listed in the run report so you can add them.
     if (category && keep === undefined) newCategories.add(category);
+    // Mowing and lawn-care crews can't use $5k+ install leads (config.installersOnly).
+    const notFit = notInstaller(place);
+    if (notFit) return skip(notFit), false;
 
     const name = cleanName(place.title);
     const contact = placeToContact({ ...place, cleanName: name }, cfg.ghl.fields, cfg.ghl.tags ?? []);

@@ -14,7 +14,10 @@
       "results": "Results returned",
       "notes": "Notes"
     },
-    "todoStatuses": ["Not run", "Processing"],
+    "todoStatuses": [
+      "Not run",
+      "Processing"
+    ],
     "doneStatus": "Run",
     "partialStatus": "Partial"
   },
@@ -28,6 +31,31 @@
     "tab": "Categories"
   },
   "skipClosedPlaces": true,
+  "installersOnly": {
+    "about": "RogoFX sells to hardscapers and landscape designers with $5k+ installs, not mowing crews. A place is skipped if its Google category is in skipCategories or its name matches skipName, unless its name matches keepName. This wins over a Yes on the Categories tab. Delete this block to contact everyone again.",
+    "keepName": "hardscap|paver|patio|design|outdoor living|stone|masonry|pool|lighting|irrigation|retaining|kitchen|artificial|synthetic|turf install",
+    "skipName": "\\b(lawns?|lawn ?care|lawncare|lawning|mow\\w*|grass cutting|cuts|cutz+)\\b",
+    "skipCategories": [
+      "Lawn care service",
+      "Lawn mower store",
+      "Lawn mower repair service",
+      "Gardener",
+      "Pest control service",
+      "Weed control service",
+      "Pressure washing service",
+      "Property maintenance",
+      "Property management company",
+      "Handyman/Handywoman/Handyperson",
+      "Janitorial service",
+      "House cleaning service",
+      "Plant nursery",
+      "Garden center",
+      "Landscaping supply store",
+      "Sod supplier",
+      "Turf supplier",
+      "Park"
+    ]
+  },
   "apify": {
     "actor": "compass/crawler-google-places",
     "language": "en",
@@ -59,5 +87,30 @@
       "website": "{{website}}",
       "dnd": false
     }
+  },
+  "funnel": {
+    "tab": "Funnel",
+    "textedTag": "sms",
+    "smsPipeline": "SMS Pipeline",
+    "firstStage": "New Prospect 👥",
+    "salesPipeline": "Sales Pipeline",
+    "replyTags": [
+      "sms_positive_replied",
+      "hot lead",
+      "not interested"
+    ],
+    "bookedTags": [
+      "demo call booked"
+    ],
+    "showedStages": [
+      "Appointment Showed",
+      "New Client"
+    ],
+    "noShowStages": [
+      "No-Show"
+    ],
+    "wonStages": [
+      "New Client"
+    ]
   }
 }

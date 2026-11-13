@@ -89,6 +89,19 @@ export function createSheetsClient({ serviceAccount, spreadsheetId }) {
       });
     },
 
+    /** Adds the tab if the spreadsheet doesn't have it yet. */
+    async ensureTab(tab) {
+      const meta = await call('?fields=sheets.properties.title');
+      if ((meta?.sheets ?? []).some((s) => s.properties.title === tab)) return;
+      await call(':batchUpdate', { method: 'POST', body: { requests: [{ addSheet: { properties: { title: tab } } }] } });
+    },
+
+    /** Clears the tab and writes these rows from A1. */
+    async replaceTab(tab, rows) {
+      await call(`${valuesPath(quoteTab(tab))}:clear`, { method: 'POST', body: {} });
+      await call(`${valuesPath(`${quoteTab(tab)}!A1`)}?valueInputOption=RAW`, { method: 'PUT', body: { values: rows } });
+    },
+
     /** Adds rows after the last row of the tab. Typed as if entered by hand. */
     async appendRows(tab, rows) {
       if (!rows.length) return;
