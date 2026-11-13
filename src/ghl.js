@@ -59,6 +59,38 @@ export function createGhlClient({ token, locationId, workflowId }) {
       return data?.opportunity?.id ?? null;
     },
 
+    /** Read-only, for the funnel report. */
+    async pipelines() {
+      const data = await call(`/opportunities/pipelines?locationId=${locationId}`, { label: 'GHL pipelines' });
+      return data?.pipelines ?? [];
+    },
+
+    async allContacts() {
+      const out = [];
+      let searchAfter;
+      for (;;) {
+        const body = { locationId, pageLimit: 500, ...(searchAfter ? { searchAfter } : {}) };
+        const data = await call('/contacts/search', { method: 'POST', body, label: 'GHL list contacts' });
+        const page = data?.contacts ?? [];
+        out.push(...page);
+        searchAfter = page.at(-1)?.searchAfter;
+        if (page.length < 500 || !searchAfter) return out;
+      }
+    },
+
+    async allOpportunities() {
+      const out = [];
+      let path = `/opportunities/search?location_id=${locationId}&limit=100`;
+      while (path) {
+        const data = await call(path, { label: 'GHL list opportunities' });
+        const page = data?.opportunities ?? [];
+        out.push(...page);
+        const next = data?.meta?.nextPageUrl;
+        path = next && page.length ? next.replace(API, '') : null;
+      }
+      return out;
+    },
+
     async addToWorkflow(contactId) {
       await call(`/contacts/${contactId}/workflow/${workflowId}`, {
         method: 'POST',

@@ -13,6 +13,7 @@ Monday to Saturday at about 1:40am Chicago time (2:40am in summer), GitHub Actio
    - anyone already in **Master Leads** (matched on phone number)
    - anyone already in GHL
    - categories you marked **No** on the **Categories** tab, such as parks and plant nurseries
+   - mowing and lawn-care crews (see "Installers only" below)
 5. Creates everyone else in GHL with the same fields Make used: first name and company name (with LLC/Inc removed), phone, address, city, state and website. Then it puts each one in the **SMS Pipeline**, stage **New Prospect**, named after the business, as Make did. Landing in that stage is what starts the **Initial SMS Sequence (Add Leads Here)** workflow. The pipeline and stage are set in `config.json` under `ghl.opportunity`.
 6. Adds each new lead to **Master Leads**.
 7. Marks the Coverage Log row `Run`, with Date run, Results returned and a short note.
@@ -30,6 +31,27 @@ Make's old scrapes (October to 12 November) are saved in Apify as the dataset `r
 - Nights spent on the backlog cost nothing in Apify. When the list runs out, that same night carries on with Coverage Log scraping as described above. The run report says how many backlog leads are left.
 - The Coverage Log isn't changed for backlog leads, because their counties are already marked Run.
 - To skip the backlog, delete the `backlog` block from `config.json`.
+
+### Installers only (no mowing crews)
+
+RogoFX sells to hardscapers and landscape designers whose installs run $5k and up. A crew that mows lawns can't use those leads, so the job skips:
+
+- places whose Google category is in `installersOnly.skipCategories`: Lawn care service, Gardener, Pressure washing service, Plant nursery and the like;
+- places whose name says mowing: lawn, lawn care, mow, mowing, cuts, cutz (`installersOnly.skipName`).
+
+A name that also says hardscape, pavers, patio, design, outdoor living, stone, pool, lighting, irrigation or turf is always kept (`installersOnly.keepName`), so "Coastal Lawn & Hardscape" is still contacted. This check wins over a **Yes** on the Categories tab. The run report lists these as "not an installer". Make's paid backlog is about 39 % mowing crews by this test, so expect plenty of skips there. Delete the `installersOnly` block from `config.json` to contact everyone again.
+
+### Funnel tab
+
+After the import, the job reads GHL and rewrites a **Funnel** tab in the sheet, creating the tab the first time. It shows texted → replied → booked → showed → no-show → signed, plus booked per text, show rate and close rate. It splits by the month the lead was added and by installer vs mowing crew.
+
+- **Texted** means contacts tagged `sms`, so test contacts and inbound leads stay out.
+- **Replied** means a "positive replied", "hot lead" or "not interested" tag, or an SMS Pipeline card past New Prospect.
+- **Booked** means the `demo call booked` tag or a Sales Pipeline card.
+- **Showed** and **Signed** come from the Sales Pipeline stages: Appointment Showed, No-Show and New Client.
+- **Signed value** is the card's value: put the real monthly fee there.
+
+The numbers are only as good as the stages. Nothing showed or signed is counted until those cards get moved, so the GHL workflows that move them matter. Run it by hand with `npm run funnel`. The stage and tag names are under `funnel` in `config.json`.
 
 ### Never paying Apify twice for the same county
 
@@ -102,6 +124,8 @@ Make's old scrapes (October to 12 November) are saved in Apify as the dataset `r
 | `backlog` | Make's paid scrapes | The Apify dataset worked through before any new scraping (see "Leads already paid for come first") |
 | `apify.stopBelowUsd` | 3 | Don't start another scrape when less than this many dollars of the Apify monthly limit is left, so a county isn't cut off halfway and still billed |
 | `masterLeads.status` | Texted | The Status written on new Master Leads rows. The Dashboard counts these under "Texted". |
+| `installersOnly` | on | Skips mowing and lawn-care crews by category or name (see "Installers only") |
+| `funnel` | SMS + Sales pipelines | Tags and stage names the Funnel tab counts |
 | `skipClosedPlaces` | true | Skips businesses Google lists as closed. This is checked here, after the scrape: Apify's own "skip closed places" filter is billed on every place, so it isn't used |
 
 ## Running it on your own computer (optional)

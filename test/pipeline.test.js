@@ -604,3 +604,36 @@ test('the real config puts new contacts in SMS Pipeline > New Prospect (starts t
     name: '{{cleanName}}',
   });
 });
+
+test('installers only: mowing and lawn-care crews are skipped by category or name, hardscapers and designers are kept', async () => {
+  const list = [
+    place(239, 1), // "Green ... Landscaping", category Landscaper: kept
+    place(239, 2, { categoryName: 'Lawn care service' }), // skipped, even though the tab says Yes
+    place(239, 3, { title: "Rojo's Lawn Service" }),
+    place(239, 4, { title: 'Mow It Up LLC' }),
+    place(239, 5, { title: 'Precision Cutzz Landscaping' }),
+    place(239, 6, { title: 'Coastal Lawn & Hardscape Design', categoryName: 'Lawn care service' }), // name says installer: kept
+    place(239, 7, { title: 'Gulf Pavers', categoryName: 'Paving contractor' }),
+    place(239, 8, { title: 'Cutting Edge Landscapes' }), // "cutting" alone is not a mowing word
+  ];
+  const sheets = tracker({ coverage: [row('Florida', 'Lee', 'landscaping')] });
+  const apify = fakeApify({ 'Lee County, Florida, USA': list });
+  const ghl = fakeGhl();
+
+  const s = await run({ config: config(), sheets, apify, ghl });
+
+  assert.deepEqual(ghl.created.map((c) => c.phone), ['+12390000001', '+12390000006', '+12390000007', '+12390000008']);
+  assert.deepEqual(s.skipped, { 'not an installer (category)': 1, 'not an installer (name)': 3 });
+});
+
+test('installers only can be turned off by deleting the block from config.json', async () => {
+  const sheets = tracker({ coverage: [row('Florida', 'Lee', 'landscaping')] });
+  const apify = fakeApify({ 'Lee County, Florida, USA': [place(239, 1, { title: 'Mow It Up' })] });
+  const ghl = fakeGhl();
+  const cfg = config();
+  delete cfg.installersOnly;
+
+  await run({ config: cfg, sheets, apify, ghl });
+
+  assert.equal(ghl.created.length, 1);
+});
