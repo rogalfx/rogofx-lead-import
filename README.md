@@ -111,9 +111,26 @@ The numbers are only as good as the stages. Nothing showed or signed is counted 
 
 - **What happened last night:** look at the Dashboard, the Coverage Log Notes, or the run on the **Actions** page.
 - **Problems:** if a run fails, GitHub emails you. That includes running out of `Not run` rows before reaching 1,000.
-- **Change the time:** edit the `cron` line in `.github/workflows/nightly.yml`. It's in UTC, so `37 7 * * 1-6` is 1:37am CST, Monday (1) to Saturday (6). Use `37 7 * * *` to run every day. Keep the minute off `:00`: GitHub's queue is busiest on the hour, and the 08:00 slot started 8½ hours late on 12 November.
+- **What starts it each morning:** a free timer at cron-job.org starts the job at **4:30am Chicago time**, Monday to Saturday (setup below). A night takes about 30–60 minutes, so contacts are in the SMS pipeline well before 7am. GitHub's own timer (the `cron` line in `.github/workflows/nightly.yml`, 07:37 UTC) is only a backup: GitHub started it about 8 hours late on 12 and 13 November. When the backup starts after the morning run, it sees the day's 1,000 are already in Master Leads and stops.
 - **Apify spending limit:** each run prints this month's Apify spend. If the limit is used up (or less than `apify.stopBelowUsd` is left), the run stops before scraping, says how much is used and when it resets, and GitHub emails you. Nothing in the sheet or GHL changes. Raise the limit at <https://console.apify.com/billing/limits> or wait for the reset.
-- **Pause it:** change the `NIGHTLY_ENABLED` variable to `false`. Manual runs from the Actions page still work while it's paused.
+- **Pause it:** turn the job off at cron-job.org **and** change the `NIGHTLY_ENABLED` variable to `false` (that one only stops GitHub's backup timer). Manual runs from the Actions page still work while it's paused.
+
+## Starting on time with cron-job.org (one-time setup)
+
+1. **A GitHub token that can only start this job:** go to <https://github.com/settings/personal-access-tokens/new>.
+   - Token name: `cron-job.org lead import`. Expiration: 1 year.
+   - Repository access: **Only select repositories**, then pick `rogofx-lead-import`.
+   - Permissions: **Actions → Read and write**. Leave everything else as it is.
+   - Click **Generate token** and copy it.
+2. **The timer:** sign up free at <https://cron-job.org>, then **Create cronjob**.
+   - URL: `https://api.github.com/repos/rogalfx/rogofx-lead-import/actions/workflows/nightly.yml/dispatches`
+   - Schedule: **Custom**, every day of the month, Monday to Saturday, at **04:30**. Time zone: **America/Chicago**, so it moves with daylight saving time by itself.
+   - **Advanced** tab:
+     - Request method: **POST**
+     - Headers: `Authorization` = `Bearer ` followed by the token; `Accept` = `application/vnd.github+json`
+     - Request body: `{"ref":"main","inputs":{"dry_run":"false"}}`. Without `"dry_run":"false"` it would only do a dry run.
+   - Save, then press **Test run**. GitHub answers **204**, and a new run appears on the **Actions** page.
+3. When the token expires next year, make a new one and paste it into the cron job's `Authorization` header.
 
 ## Settings (`config.json`)
 
